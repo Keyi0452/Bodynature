@@ -3,15 +3,25 @@ import jsPDF from "jspdf";
 import QRCode from "qrcode";
 import { getQuestions, compute, BodyType, Answer } from "./standard";
 
-/** 网站地址：优先取环境变量，回退到浏览器 origin */
+/** ========== 🌿 东方配色主题，可修改此处来整体换风格 ========== */
+const THEME = {
+  bgGradient:
+    "linear-gradient(to bottom, #FFF8ED 0%, #F8FAF8 40%, #EDF5F0 100%)", // 背景渐变：米杏→石青→竹青
+  primary: "#0F766E", // 主色：竹青
+  primaryHover: "#115E59", // 主色 hover
+  accent: "#059669", // 渐变中点色
+  highlight: "#FCD34D", // 高亮色（未答提示）
+  text: "#1C1917", // 正文主色
+  subText: "#57534E", // 副文本
+  cardBg: "rgba(255,255,255,0.9)", // 卡片背景
+};
+
+/** 网站地址 */
 const SITE_URL =
   (import.meta as any)?.env?.VITE_SITE_URL ||
   (typeof window !== "undefined" ? window.location.origin : "https://example.com");
 
-/** 先默认性别（你可以做个下拉选择来改） */
-const userSex: "male" | "female" = "female";
-
-/** 评分文字 */
+/** 评分刻度 */
 const SCALE = [
   { v: 1, label: "1 从不/没有" },
   { v: 2, label: "2 偶尔/轻度" },
@@ -23,10 +33,22 @@ const SCALE = [
 type Answers = Partial<Record<BodyType, (Answer | undefined)[]>>;
 
 export default function App() {
-  /** 题库（已按性别处理好互斥题） */
-  const bank = useMemo(() => getQuestions({ sex: userSex }), []);
+  const [sex, setSex] = useState<"male" | "female">("female");
+  const bank = useMemo(() => getQuestions({ sex }), [sex]);
 
-  /** 答案：按体质维度分别存（与题库长度同步） */
+  /** 平铺题库 */
+  const flat = useMemo(() => {
+    const items: { type: BodyType; idx: number; text: string }[] = [];
+    (Object.keys(bank) as BodyType[]).forEach((t) => {
+      bank[t].forEach((q, i) => {
+        const clean = q.text.replace(/[*＊]/g, "").trim();
+        items.push({ type: t, idx: i, text: clean });
+      });
+    });
+    return items;
+  }, [bank]);
+
+  /** 答案 */
   const [answers, setAnswers] = useState<Answers>({});
   useEffect(() => {
     const init: Answers = {};
@@ -34,10 +56,8 @@ export default function App() {
       init[t] = Array(bank[t].length).fill(undefined);
     });
     setAnswers(init);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [bank]);
 
-  /** 结果展示 */
   const [resultView, setResultView] = useState<{
     trans: Record<BodyType, number>;
     ranking: BodyType[];
@@ -45,6 +65,8 @@ export default function App() {
   } | null>(null);
 
   const updatingPdf = useRef(false);
+  const [unansweredIndex, setUnansweredIndex] = useState<number | null>(null);
+  const [showTopBtn, setShowTopBtn] = useState(false);
 
   const handleChange = (t: BodyType, idx: number, v: number) => {
     setAnswers((prev) => {
@@ -56,27 +78,64 @@ export default function App() {
     });
   };
 
+  /** 滚动监听：控制回到顶部按钮显示 */
+  useEffect(() => {
+    const onScroll = () => {
+      setShowTopBtn(window.scrollY > 600);
+    };
+    window.addEventListener("scroll", onScroll);
+    return () => window.removeEventListener("scroll", onScroll);
+  }, []);
+
+  /** 进度 */
+  const total = flat.length;
+  const done = flat.filter((q) => answers[q.type]?.[q.idx]).length;
+  const percent = Math.round((done / Math.max(1, total)) * 100);
+
+  const findFirstUnanswered = () => {
+    for (let i = 0; i < flat.length; i++) {
+      const q = flat[i];
+      if (!answers[q.type]?.[q.idx]) return i;
+    }
+    return null;
+  };
+
+  const scrollTo = (i: number) => {
+    const el = document.querySelector<HTMLDivElement>(`#q-${i}`);
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
+  };
+
   const handleSubmit = () => {
-    const { trans, result, ranking } = compute(answers as any, { sex: userSex });
+    const first = findFirstUnanswered();
+    if (first !== null) {
+      setUnansweredIndex(first);
+      scrollTo(first);
+      return;
+    }
+    const { trans, result, ranking } = compute(answers as any, { sex });
     setResultView({ trans, result, ranking });
+    setUnansweredIndex(null);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
   const exportPdf = async () => {
+    const first = findFirstUnanswered();
+    if (first !== null) {
+      setUnansweredIndex(first);
+      scrollTo(first);
+      return;
+    }
     if (updatingPdf.current) return;
     updatingPdf.current = true;
     try {
-      const { trans, result, ranking } = compute(answers as any, { sex: userSex });
+      const { trans, result, ranking } = compute(answers as any, { sex });
 
       const margin = 36;
       const doc = new jsPDF({ unit: "pt", format: "a4" });
-
       doc.setFontSize(18);
       doc.text("中医体质判断问卷 · 结果", margin, margin);
-
       doc.setFontSize(12);
       doc.text(`主要体质：${ranking.slice(0, 2).join("、")}`, margin, margin + 26);
-
       doc.setFontSize(11);
       let y = margin + 50;
       doc.text("各体质转化分（0~100）：", margin, y);
@@ -85,32 +144,16 @@ export default function App() {
         doc.text(`${k}：${trans[k].toFixed(1)}`, margin + 12, y);
         y += 16;
       });
-
       y += 8;
-      doc.setFontSize(11);
       const tags: string[] = [];
       if (result.平和质) tags.push(result.平和质);
       if (result.体质?.length) tags.push(...result.体质);
       if (result.倾向?.length) tags.push(...result.倾向.map((t) => `${t}（倾向）`));
       doc.text(`判定：${tags.length ? tags.join("，") : "暂无（答案不足或均低于阈值）"}`, margin, y);
-
-      // 右侧二维码 + 站点地址
       const qrDataUrl = await QRCode.toDataURL(SITE_URL, { margin: 1, width: 180 });
-      doc.setFontSize(10);
-      doc.text("扫码进入网页测试：", 400, margin + 12);
       doc.addImage(qrDataUrl, "PNG", 400, margin + 24, 150, 150);
-      // ✅ 改用 URL 解析，避免构建转义错误
       const u = new URL(SITE_URL);
       doc.text(`${u.host}${u.pathname}`, 400, margin + 186);
-
-      doc.setFontSize(9);
-      doc.text(
-        "* 本工具仅用于健康教育与体质自测，不构成医疗建议；如有不适或疾病，请尽快就医。",
-        margin,
-        812,
-        { maxWidth: 520 }
-      );
-
       doc.save("体质自测-结果.pdf");
     } catch (e) {
       console.error(e);
@@ -121,80 +164,142 @@ export default function App() {
   };
 
   return (
-    <div className="mx-auto max-w-3xl px-4 py-8 text-gray-900">
-      <h1 className="text-2xl font-bold mb-2">中医体质判断问卷</h1>
-      <p className="text-sm text-gray-600 mb-6">
-        了解体质，更准确的养生。<b>免责声明：</b>本网站不构成医疗建议，如有疾病请及时就医。
-      </p>
+    <div
+      className="min-h-screen transition-colors"
+      style={{ backgroundImage: THEME.bgGradient, color: THEME.text }}
+    >
+      <div className="mx-auto max-w-3xl px-4 py-8">
+        {/* 顶部标题 */}
+        <header className="text-center mb-8">
+          <h1 className="text-3xl font-semibold tracking-wide" style={{ color: THEME.text }}>
+            中医体质判断问卷
+          </h1>
+          <p className="mt-2 text-sm" style={{ color: THEME.subText }}>
+            了解体质，更准确的养生。<b>免责声明：</b>本网站不构成医疗建议，如有疾病请及时就医。
+          </p>
+        </header>
 
-      {/* 结果区 */}
-      {resultView && (
-        <div className="mb-6 rounded-lg border border-gray-200 p-4 bg-gray-50">
-          <div className="font-semibold mb-2">判定结果</div>
-          <div className="text-sm leading-6">
-            <div className="mb-1">
-              <b>主要体质：</b>
-              {resultView.ranking.slice(0, 2).join("、")}
+        {/* 性别选择 + 进度条 */}
+        <div
+          className="mb-8 rounded-2xl border shadow-sm p-4 backdrop-blur"
+          style={{ background: THEME.cardBg, borderColor: "#E5E7EB" }}
+        >
+          <div className="flex flex-col sm:flex-row items-center gap-4">
+            {/* 性别按钮 */}
+            <div className="flex items-center gap-2">
+              <span className="text-sm" style={{ color: THEME.subText }}>
+                性别：
+              </span>
+              <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: "#D1D5DB" }}>
+                {(["female", "male"] as const).map((s) => (
+                  <button
+                    key={s}
+                    onClick={() => setSex(s)}
+                    className="px-3 py-1.5 text-sm transition-colors"
+                    style={{
+                      background: sex === s ? THEME.primary : "#fff",
+                      color: sex === s ? "#fff" : THEME.text,
+                    }}
+                  >
+                    {s === "female" ? "女" : "男"}
+                  </button>
+                ))}
+              </div>
             </div>
-            <div className="mb-1">
-              <b>平和质：</b>
-              {resultView.result.平和质 ?? "—"}
-            </div>
-            <div className="mb-1">
-              <b>偏颇体质：</b>
-              {resultView.result.体质?.length ? resultView.result.体质.join("、") : "—"}
-            </div>
-            <div>
-              <b>倾向体质：</b>
-              {resultView.result.倾向?.length ? resultView.result.倾向.join("、") : "—"}
+            {/* 进度条 */}
+            <div className="flex-1 w-full">
+              <div className="flex items-center justify-between text-xs mb-1" style={{ color: THEME.subText }}>
+                <span>完成度</span>
+                <span>
+                  {done}/{total}（{percent}%）
+                </span>
+              </div>
+              <div className="h-2 w-full rounded-full bg-stone-200 overflow-hidden">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${percent}%`,
+                    background: `linear-gradient(90deg, ${THEME.accent}, ${THEME.primary})`,
+                  }}
+                />
+              </div>
             </div>
           </div>
         </div>
-      )}
 
-      {/* 题目 */}
-      {(Object.keys(bank) as BodyType[]).map((t) => (
-        <div key={t} className="mb-8 rounded-lg border border-gray-200 p-4">
-          <h2 className="font-semibold mb-4">{t}</h2>
-          <ol className="space-y-4">
-            {bank[t].map((q, idx) => (
-              <li key={idx} className="grid grid-cols-1 md:grid-cols-5 gap-3 items-center">
-                <div className="md:col-span-2 text-sm">{idx + 1}、{q.text}</div>
-                <div className="md:col-span-3 flex flex-wrap gap-3">
+        {/* 题目 */}
+        <ol className="space-y-5">
+          {flat.map((q, i) => {
+            const unanswered = unansweredIndex === i;
+            return (
+              <li
+                id={`q-${i}`}
+                key={`${q.type}-${q.idx}`}
+                className="rounded-2xl border p-4 shadow-sm"
+                style={{
+                  background: THEME.cardBg,
+                  borderColor: unanswered ? THEME.highlight : "#E5E7EB",
+                }}
+              >
+                <div className="font-medium mb-3">{i + 1}、{q.text}</div>
+                <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
                   {SCALE.map((s) => (
-                    <label key={s.v} className="inline-flex items-center gap-1">
+                    <label key={s.v} className="inline-flex items-center gap-2">
                       <input
                         type="radio"
-                        name={`${t}-${idx}`}
+                        name={`q-${q.type}-${q.idx}`}
                         value={s.v}
-                        checked={answers[t]?.[idx] === s.v}
-                        onChange={() => handleChange(t, idx, s.v)}
+                        checked={answers[q.type]?.[q.idx] === s.v}
+                        onChange={() => handleChange(q.type, q.idx, s.v)}
                       />
-                      <span className="text-xs">{s.label}</span>
+                      <span>{s.label}</span>
                     </label>
                   ))}
                 </div>
+                {unanswered && (
+                  <div className="mt-2 text-xs text-amber-700">
+                    这题还没作答，请选择一个选项
+                  </div>
+                )}
               </li>
-            ))}
-          </ol>
-        </div>
-      ))}
+            );
+          })}
+        </ol>
 
-      {/* 操作区 */}
-      <div className="flex gap-3">
-        <button
-          onClick={handleSubmit}
-          className="px-4 py-2 rounded bg-blue-600 text-white hover:bg-blue-700"
-        >
-          计算结果
-        </button>
-        <button
-          onClick={exportPdf}
-          className="px-4 py-2 rounded border border-gray-300 hover:bg-gray-50"
-        >
-          导出 PDF
-        </button>
+        {/* 按钮区域 */}
+        <div className="sticky bottom-0 inset-x-0 mt-8 bg-white/70 backdrop-blur border-t">
+          <div className="mx-auto max-w-3xl px-4 py-3 flex items-center justify-center gap-3">
+            <button
+              onClick={handleSubmit}
+              className="px-4 py-2 rounded-xl shadow-sm text-white"
+              style={{ background: THEME.primary }}
+            >
+              计算结果
+            </button>
+            <button
+              onClick={exportPdf}
+              className="px-4 py-2 rounded-xl border shadow-sm"
+              style={{ borderColor: "#D1D5DB", color: THEME.text }}
+            >
+              导出 PDF
+            </button>
+          </div>
+        </div>
       </div>
+
+      {/* 回到顶部按钮 */}
+      {showTopBtn && (
+        <button
+          onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })}
+          className="fixed bottom-24 right-6 w-10 h-10 rounded-full shadow-lg text-white text-lg transition-opacity hover:scale-105"
+          style={{
+            background: THEME.primary,
+          }}
+          title="回到顶部"
+        >
+          ↑
+        </button>
+      )}
     </div>
   );
 }
