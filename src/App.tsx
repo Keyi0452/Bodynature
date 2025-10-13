@@ -393,7 +393,7 @@ export default function App() {
 
         {/* 外部推广链接（小红书） */}
         <div className="mt-10 text-center text-sm" style={{ color: THEME.subText }}>
-          想了解更多体质养生内容？<br />
+          想了解更多中医养生知识？<br />
           欢迎在小红书搜索：
           <a
             href="https://www.xiaohongshu.com/search_result?keyword=%E7%8E%8B%E5%92%A9%E5%92%A9%E5%9C%A8%E6%96%B0%E5%8A%A0%E5%9D%A1"
