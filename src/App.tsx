@@ -3,7 +3,7 @@ import jsPDF from "jspdf";
 import QRCode from "qrcode";
 import { getQuestions, compute, BodyType, Answer } from "./standard";
 
-/** ====== 🌿 可配置东方配色主题 ====== */
+/** ====== 🌿 东方配色风格主题 ====== */
 const THEME = {
   bgGradient: "linear-gradient(to bottom, #FFF8ED 0%, #F8FAF8 40%, #EDF5F0 100%)",
   primary: "#0F766E",
@@ -16,14 +16,14 @@ const THEME = {
   border: "#E5E7EB",
 };
 
-/** ✅ 自定义二维码跳转域名（可改成你的主域名或用 VITE_SITE_URL 覆盖） */
+/** ✅ 二维码跳转域名（改成你的自定义域名也可以） */
 const FRIENDLY_URL = "https://checkyourbodynature.vercel.app";
 const SITE_URL =
   (import.meta as any)?.env?.VITE_SITE_URL ||
   FRIENDLY_URL ||
   (typeof window !== "undefined" ? window.location.origin : "https://example.com");
 
-/** 评分刻度 */
+/** 问卷评分刻度 */
 const SCALE = [
   { v: 1, label: "1 从不/没有" },
   { v: 2, label: "2 偶尔/轻度" },
@@ -34,7 +34,7 @@ const SCALE = [
 
 type Answers = Partial<Record<BodyType, (Answer | undefined)[]>>;
 
-/** —— 简洁版建议库（可替换为你的完整版） —— */
+/** ✅ 建议库（可根据你品牌改写） */
 const ADVICE: Record<
   BodyType,
   { daily: string[]; diet: string[]; sport: string[]; mood: string[] }
@@ -97,15 +97,13 @@ const ADVICE: Record<
 
 type View = "form" | "result";
 
-/** 兜底加载 html2canvas：优先 ESM import；失败则从 CDN 注入 */
+/** 确保 html2canvas 可用 */
 async function ensureHtml2canvas(): Promise<(node: HTMLElement, opts?: any) => Promise<HTMLCanvasElement>> {
   try {
     const mod = await import("html2canvas");
     return mod.default;
   } catch {
-    // @ts-ignore
     if (typeof window !== "undefined" && (window as any).html2canvas) {
-      // @ts-ignore
       return (window as any).html2canvas;
     }
     await new Promise<void>((resolve, reject) => {
@@ -116,20 +114,15 @@ async function ensureHtml2canvas(): Promise<(node: HTMLElement, opts?: any) => P
       s.onerror = () => reject(new Error("load html2canvas failed"));
       document.head.appendChild(s);
     });
-    // @ts-ignore
     return (window as any).html2canvas;
   }
 }
 
 export default function App() {
-  /** 视图切换：问卷 -> 结果页 */
   const [view, setView] = useState<View>("form");
-
-  /** 性别与题库 */
   const [sex, setSex] = useState<"male" | "female">("female");
   const bank = useMemo(() => getQuestions({ sex }), [sex]);
 
-  /** 平铺题库（隐藏体质分组，连续编号） */
   const flat = useMemo(() => {
     const items: { type: BodyType; idx: number; text: string }[] = [];
     (Object.keys(bank) as BodyType[]).forEach((t) => {
@@ -140,7 +133,6 @@ export default function App() {
     return items;
   }, [bank]);
 
-  /** 答案（性别变化时重置） */
   const [answers, setAnswers] = useState<Answers>({});
   useEffect(() => {
     const init: Answers = {};
@@ -148,109 +140,74 @@ export default function App() {
     setAnswers(init);
   }, [bank]);
 
-  /** 进度与未答定位 */
-  const [unansweredIndex, setUnansweredIndex] = useState<number | null>(null);
   const total = flat.length;
   const done = flat.filter((q) => answers[q.type]?.[q.idx]).length;
   const percent = Math.round((done / Math.max(1, total)) * 100);
+  const [unansweredIndex, setUnansweredIndex] = useState<number | null>(null);
 
-  /** 结果数据（进入结果页时生成） */
   const [result, setResult] = useState<{
     trans: Record<BodyType, number>;
     ranking: BodyType[];
-    mainTypes: BodyType[]; // 前两名（包含平和质）
+    mainTypes: BodyType[];
   } | null>(null);
 
-  /** 工具函数 */
-  const scrollTo = (i: number) => {
-    const el = document.querySelector<HTMLDivElement>(`#q-${i}`);
-    if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
-  };
-  const findFirstUnanswered = () => {
-    for (let i = 0; i < flat.length; i++) {
-      const q = flat[i];
-      if (!answers[q.type]?.[q.idx]) return i;
-    }
-    return null;
-  };
-
-  /** 计算并进入结果页 */
+  /** 提交问卷计算结果 */
   const handleSubmit = () => {
-    const first = findFirstUnanswered();
-    if (first !== null) {
+    const first = flat.findIndex((q) => !answers[q.type]?.[q.idx]);
+    if (first !== -1) {
       setUnansweredIndex(first);
-      scrollTo(first);
+      document.querySelector(`#q-${first}`)?.scrollIntoView({ behavior: "smooth" });
       return;
     }
     const { trans, ranking } = compute(answers as any, { sex });
-    // ✅ 直接取前两名（包含平和质）
-    const mainTypes = ranking.slice(0, 2);
+    const mainTypes = ranking.slice(0, 2); // ✅ 包含平和质
     setResult({ trans, ranking, mainTypes });
     setView("result");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  /** ✅ 生成“结果海报 PDF”（确保二维码加载完成再截图） */
+  /** ✅ 页面加载时自动生成二维码 */
+  useEffect(() => {
+    const makeQR = async () => {
+      try {
+        const qrImg = document.getElementById("poster-qr") as HTMLImageElement | null;
+        if (!qrImg) return;
+        const qrDataUrl = await QRCode.toDataURL(SITE_URL, { margin: 1, width: 160 });
+        qrImg.src = qrDataUrl;
+      } catch (err) {
+        console.error("QR generation failed", err);
+      }
+    };
+    makeQR();
+  }, []);
+
+  /** ✅ 生成 PDF（已确保二维码加载完成） */
   const createPosterPDF = async () => {
     const node = document.getElementById("poster-root");
     if (!node || !result) return;
-
-    // 生成二维码并赋给 <img>
-    const qrImg = document.getElementById("poster-qr") as HTMLImageElement | null;
-    if (qrImg) {
-      const qrDataUrl = await QRCode.toDataURL(SITE_URL, { margin: 1, width: 160 });
-      qrImg.src = qrDataUrl;
-
-      // 双层检测：onload + naturalWidth 轮询，2s 兜底
-      await new Promise<void>((resolve) => {
-        let loaded = false;
-        const tryResolve = () => {
-          if (loaded) return resolve();
-          if (qrImg.complete && qrImg.naturalWidth > 0) {
-            loaded = true;
-            resolve();
-          } else {
-            setTimeout(tryResolve, 80);
-          }
-        };
-        qrImg.onload = () => {
-          loaded = true;
-          resolve();
-        };
-        tryResolve();
-        setTimeout(() => resolve(), 2000);
-      });
-    }
-
-    // 截图并生成 PDF
     const html2canvas = await ensureHtml2canvas();
-    const canvas = await html2canvas(node as HTMLElement, {
-      scale: 2,
-      backgroundColor: "#ffffff",
-    });
+    const canvas = await html2canvas(node, { scale: 2, backgroundColor: "#fff" });
     const img = canvas.toDataURL("image/jpeg", 0.95);
     const pdf = new jsPDF({ unit: "pt", format: "a4" });
-    const pageW = 595, pageH = 842;
-    const imgW = pageW, imgH = (canvas.height / canvas.width) * imgW;
-    pdf.addImage(img, "JPEG", 0, 0, imgW, Math.min(imgH, pageH));
+    const pageW = 595;
+    const imgH = (canvas.height / canvas.width) * pageW;
+    pdf.addImage(img, "JPEG", 0, 0, pageW, imgH);
     pdf.save("体质自测-结果海报.pdf");
   };
 
-  /** —————— 视图：问卷 —————— */
+  /** 问卷页 */
   if (view === "form") {
     return (
       <div className="min-h-screen" style={{ backgroundImage: THEME.bgGradient, color: THEME.text }}>
         <div className="mx-auto max-w-3xl px-4 py-8">
-          <header className="text-center mb-8">
-            <h1 className="text-3xl font-semibold tracking-wide">中医体质判断问卷</h1>
-            <p className="mt-2 text-sm" style={{ color: THEME.subText }}>
-              了解体质，更准确的养生。<b>免责声明：</b>本网站不构成医疗建议，如有疾病请及时就医。
-            </p>
-          </header>
+          <h1 className="text-3xl font-semibold text-center mb-3">中医体质判断问卷</h1>
+          <p className="text-sm text-center mb-6" style={{ color: THEME.subText }}>
+            了解体质，更准确的养生。<b>免责声明：</b>本网站不构成医疗建议，如有疾病请及时就医。
+          </p>
 
-          {/* 性别 + 进度条 */}
-          <div className="mb-6 rounded-2xl p-4 shadow-sm backdrop-blur"
-               style={{ background: THEME.cardBg, border: `1px solid ${THEME.border}` }}>
+          {/* 性别选择 + 进度条 */}
+          <div className="mb-6 p-4 rounded-2xl shadow-sm backdrop-blur"
+            style={{ background: THEME.cardBg, border: `1px solid ${THEME.border}` }}>
             <div className="flex flex-col sm:flex-row items-center gap-4">
               <div className="flex items-center gap-2">
                 <span className="text-sm" style={{ color: THEME.subText }}>性别：</span>
@@ -268,131 +225,76 @@ export default function App() {
                 <div className="flex items-center justify-between text-xs mb-1" style={{ color: THEME.subText }}>
                   <span>完成度</span><span>{done}/{total}（{percent}%）</span>
                 </div>
-                <div className="h-2 w-full rounded-full bg-stone-200 overflow-hidden">
+                <div className="h-2 rounded-full bg-stone-200 overflow-hidden">
                   <div className="h-full rounded-full transition-all"
-                       style={{ width: `${percent}%`, background: `linear-gradient(90deg, ${THEME.accent}, ${THEME.primary})` }} />
+                    style={{ width: `${percent}%`, background: `linear-gradient(90deg, ${THEME.accent}, ${THEME.primary})` }} />
                 </div>
               </div>
             </div>
           </div>
 
-          {(total - done) > 0 && (
-            <div className="mb-4 text-sm rounded-lg px-3 py-2"
-                 style={{ background: "#FFFBEB", color: "#92400E", border: "1px solid #FDE68A" }}>
-              还有 <b>{total - done}</b> 题未作答。点击“计算结果”我会带你定位到第一处未答。
-            </div>
-          )}
-
           <ol className="space-y-5">
-            {flat.map((q, i) => {
-              const unanswered = unansweredIndex === i;
-              return (
-                <li id={`q-${i}`} key={`${q.type}-${q.idx}`}
-                    className="rounded-2xl border p-4 shadow-sm"
-                    style={{ background: THEME.cardBg, borderColor: unanswered ? THEME.highlight : THEME.border }}>
-                  <div className="font-medium mb-3">{i + 1}、{q.text}</div>
-                  <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
-                    {SCALE.map((s) => (
-                      <label key={s.v} className="inline-flex items-center gap-2">
-                        <input type="radio" name={`q-${q.type}-${q.idx}`} value={s.v}
-                          checked={answers[q.type]?.[q.idx] === s.v}
-                          onChange={() => {
-                            const next = { ...answers };
-                            const arr = (next[q.type] ? [...(next[q.type] as (Answer | undefined)[])] : Array(bank[q.type].length).fill(undefined)) as (Answer | undefined)[];
-                            arr[q.idx] = s.v as Answer;
-                            next[q.type] = arr;
-                            setAnswers(next);
-                          }} />
-                        <span>{s.label}</span>
-                      </label>
-                    ))}
-                  </div>
-                  {unanswered && <div className="mt-2 text-xs" style={{ color: "#92400E" }}>这题还没作答，请选择一个选项</div>}
-                </li>
-              );
-            })}
+            {flat.map((q, i) => (
+              <li key={i} id={`q-${i}`} className="border p-4 rounded-2xl shadow-sm"
+                style={{ background: THEME.cardBg, borderColor: unansweredIndex === i ? THEME.highlight : THEME.border }}>
+                <div className="font-medium mb-3">{i + 1}、{q.text}</div>
+                <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
+                  {SCALE.map((s) => (
+                    <label key={s.v} className="inline-flex items-center gap-2">
+                      <input type="radio" name={`q-${q.type}-${q.idx}`}
+                        checked={answers[q.type]?.[q.idx] === s.v}
+                        onChange={() => {
+                          const next = { ...answers };
+                          const arr = (next[q.type] ? [...(next[q.type] as any)] : Array(bank[q.type].length).fill(undefined));
+                          arr[q.idx] = s.v;
+                          next[q.type] = arr;
+                          setAnswers(next);
+                        }} />
+                      <span>{s.label}</span>
+                    </label>
+                  ))}
+                </div>
+              </li>
+            ))}
           </ol>
 
-          <div className="sticky bottom-0 inset-x-0 mt-8 backdrop-blur border-t"
-               style={{ background: "rgba(255,255,255,0.75)", borderColor: THEME.border }}>
-            <div className="mx-auto max-w-3xl px-4 py-3 flex items-center justify-center gap-3">
-              <button onClick={handleSubmit}
-                className="px-4 py-2 rounded-xl text-white shadow-sm"
-                style={{ background: THEME.primary }}>
-                计算结果
-              </button>
-              <button disabled className="px-4 py-2 rounded-xl border shadow-sm opacity-50 cursor-not-allowed"
-                style={{ borderColor: THEME.border, color: THEME.text }}>
-                导出 PDF（请先完成答题）
-              </button>
-            </div>
+          <div className="text-center mt-8">
+            <button onClick={handleSubmit}
+              className="px-6 py-2 rounded-xl text-white shadow-sm"
+              style={{ background: THEME.primary }}>计算结果</button>
           </div>
         </div>
       </div>
     );
   }
 
-  /** —————— 视图：结果页 —————— */
+  /** 结果页 */
   const trans = result!.trans;
-  const main = result!.mainTypes;   // 前两名（可能包含平和质）
+  const main = result!.mainTypes;
   const ranking = result!.ranking;
 
   return (
     <div className="min-h-screen" style={{ backgroundImage: THEME.bgGradient, color: THEME.text }}>
       <div className="mx-auto max-w-3xl px-4 py-8">
-        <header className="text-center mb-6">
-          <h1 className="text-3xl font-semibold tracking-wide">体质判定与养生建议</h1>
-          <p className="mt-2 text-sm" style={{ color: THEME.subText }}>
-            根据问卷得分计算转化分与判定规则生成结果与建议（仅供健康教育参考，不替代医疗）。
-          </p>
-        </header>
+        <h1 className="text-3xl font-semibold text-center mb-6">体质判定与养生建议</h1>
 
-        {/* 结果概览 */}
-        <div className="mb-6 rounded-2xl p-4 shadow-sm"
-             style={{ background: THEME.cardBg, border: `1px solid ${THEME.border}` }}>
+        <div className="p-4 mb-6 rounded-2xl shadow-sm"
+          style={{ background: THEME.cardBg, border: `1px solid ${THEME.border}` }}>
           <div className="text-lg font-semibold mb-1">主要体质（得分前2名）</div>
           <div className="text-sm">{main.join("、")}</div>
-          <div className="mt-3 text-sm" style={{ color: THEME.subText }}>
+          <div className="mt-2 text-sm" style={{ color: THEME.subText }}>
             其他体质从高到低：{ranking.filter((t) => !main.includes(t)).join("、")}
           </div>
         </div>
 
-        {/* 建议卡片（主两型） */}
-        {main.map((t) => (
-          <div key={t} className="mb-5 rounded-2xl p-4 shadow-sm"
-               style={{ background: THEME.cardBg, border: `1px solid ${THEME.border}` }}>
-            <div className="text-lg font-semibold mb-2">{t} · 养生建议</div>
-            <div className="grid md:grid-cols-2 gap-4 text-sm">
-              <div>
-                <div className="font-medium">起居</div>
-                <ul className="list-disc list-inside mt-1 space-y-1">{ADVICE[t].daily.map((s,i)=><li key={i}>{s}</li>)}</ul>
-              </div>
-              <div>
-                <div className="font-medium">饮食</div>
-                <ul className="list-disc list-inside mt-1 space-y-1">{ADVICE[t].diet.map((s,i)=><li key={i}>{s}</li>)}</ul>
-              </div>
-              <div>
-                <div className="font-medium">运动</div>
-                <ul className="list-disc list-inside mt-1 space-y-1">{ADVICE[t].sport.map((s,i)=><li key={i}>{s}</li>)}</ul>
-              </div>
-              <div>
-                <div className="font-medium">情志</div>
-                <ul className="list-disc list-inside mt-1 space-y-1">{ADVICE[t].mood.map((s,i)=><li key={i}>{s}</li>)}</ul>
-              </div>
-            </div>
-          </div>
-        ))}
-
-        {/* 海报：用于导出 PDF（截图区域） */}
-        <div id="poster-root" className="mt-6 rounded-2xl p-20 bg-white shadow"
-             style={{ border: `1px solid ${THEME.border}` }}>
-          <div className="text-center mb-10">
-            <div className="text-2xl font-semibold mb-2">体质自测 · 结果海报</div>
+        <div id="poster-root" className="p-10 bg-white rounded-2xl shadow"
+          style={{ border: `1px solid ${THEME.border}` }}>
+          <div className="text-center mb-8">
+            <h2 className="text-2xl font-semibold mb-1">体质自测 · 结果海报</h2>
             <div className="text-sm" style={{ color: THEME.subText }}>主要体质：{main.join("、")}</div>
           </div>
 
-          <div className="grid grid-cols-2 gap-16">
-            {/* 左侧：柱状图 + 建议摘要 */}
+          <div className="grid grid-cols-2 gap-10">
             <div>
               <div className="font-medium mb-2">各体质转化分（0~100）</div>
               <div className="space-y-2 mb-6">
@@ -402,77 +304,15 @@ export default function App() {
                   .map(({ k, v }) => (
                     <div key={k} className="flex items-center gap-3">
                       <div className="w-16 text-right text-sm">{k}</div>
-                      <div className="flex-1 h-3 rounded bg-stone-200 overflow-hidden">
-                        <div
-                          className="h-full"
-                          style={{
-                            width: `${Math.max(2, Math.min(100, v))}%`,
-                            background: `linear-gradient(90deg, ${THEME.accent}, ${THEME.primary})`,
-                          }}
-                        />
+                      <div className="flex-1 h-3 bg-stone-200 rounded overflow-hidden">
+                        <div className="h-full" style={{
+                          width: `${Math.max(2, Math.min(100, v))}%`,
+                          background: `linear-gradient(90deg, ${THEME.accent}, ${THEME.primary})`,
+                        }} />
                       </div>
-                      <div className="w-10 text-sm text-right">{v.toFixed(0)}</div>
+                      <div className="w-10 text-right text-sm">{v.toFixed(0)}</div>
                     </div>
                   ))}
               </div>
-
               <div className="font-medium mb-2">建议摘要</div>
-              <ul className="text-sm list-disc list-inside space-y-1">
-                {main
-                  .flatMap((t) =>
-                    ADVICE[t].daily.slice(0, 1).concat(ADVICE[t].diet.slice(0, 1))
-                  )
-                  .map((s, i) => (
-                    <li key={i}>{s}</li>
-                  ))}
-              </ul>
-            </div>
-
-            {/* 右侧：二维码（不显示网址，仅提示语） */}
-            <div className="text-center">
-              <img
-                id="poster-qr"
-                alt="qrcode"
-                className="inline-block w-40 h-40 bg-stone-100 object-contain"
-              />
-              <div className="mt-3 text-sm text-stone-500">扫码查看完整报告</div>
-            </div>
-          </div>
-
-          <div className="mt-10 text-center text-xs" style={{ color: THEME.subText }}>
-            * 本工具仅用于健康教育与体质自测，不构成医疗建议；如有不适或疾病，请及时就医。
-          </div>
-        </div>
-
-        {/* 底部操作区 */}
-        <div className="mt-6 flex flex-wrap items-center gap-3 justify-center">
-          <button onClick={() => setView("form")}
-            className="px-4 py-2 rounded-xl border shadow-sm"
-            style={{ borderColor: THEME.border, color: THEME.text }}>
-            返回修改答案
-          </button>
-          <button onClick={createPosterPDF}
-            className="px-4 py-2 rounded-xl text-white shadow-sm"
-            style={{ background: THEME.primary }}>
-            生成海报 PDF
-          </button>
-        </div>
-
-        {/* 外部推广链接（小红书） */}
-        <div className="mt-10 text-center text-sm" style={{ color: THEME.subText }}>
-          想了解更多中医养生知识？<br />
-          欢迎在小红书搜索：
-          <a
-            href="https://www.xiaohongshu.com/search_result?keyword=%E7%8E%8B%E5%92%A9%E5%92%A9%E5%9C%A8%E6%96%B0%E5%8A%A0%E5%9D%A1"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="ml-1 font-medium underline"
-            style={{ color: THEME.primary }}
-          >
-            王咩咩在新加坡
-          </a>
-        </div>
-      </div>
-    </div>
-  );
-}
+              <ul className="text-sm list-disc list-inside space-y-1"></ul>
