@@ -1,29 +1,51 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import jsPDF from "jspdf";
 import QRCode from "qrcode";
 import { getQuestions, compute, BodyType, Answer } from "./standard";
 
-/** ====== 🌿 东方配色风格主题 ====== */
+/** ========= 主题与样式 ========= */
 const THEME = {
-  bgGradient: "linear-gradient(to bottom, #FFF8ED 0%, #F8FAF8 40%, #EDF5F0 100%)",
-  primary: "#0F766E",
-  primaryHover: "#115E59",
-  accent: "#059669",
-  highlight: "#F59E0B",
+  bgGradient: "linear-gradient(to bottom, #FFF8ED 0%, #F6FAF7 40%, #EEF5F1 100%)",
   text: "#1C1917",
   subText: "#57534E",
   cardBg: "rgba(255,255,255,0.92)",
   border: "#E5E7EB",
+  brand: "#0F766E",
 };
 
-/** ✅ 二维码跳转域名（改成你的主域名也行），或用 VITE_SITE_URL 覆盖 */
+/** 体质 → 海报主色（可调） */
+function paletteFor(t: BodyType | undefined) {
+  switch (t) {
+    case "阳虚质":
+      return { main: "#F59E0B", dark: "#B45309", soft: "#FEF3C7" }; // 暖橙
+    case "气虚质":
+      return { main: "#D97706", dark: "#92400E", soft: "#FFF7ED" }; // 金黄
+    case "阴虚质":
+      return { main: "#EF4444", dark: "#991B1B", soft: "#FEE2E2" }; // 赤
+    case "血瘀质":
+      return { main: "#7C3AED", dark: "#5B21B6", soft: "#F3E8FF" }; // 紫
+    case "痰湿质":
+      return { main: "#22C55E", dark: "#15803D", soft: "#DCFCE7" }; // 绿
+    case "湿热质":
+      return { main: "#06B6D4", dark: "#0E7490", soft: "#CFFAFE" }; // 青
+    case "气郁质":
+      return { main: "#60A5FA", dark: "#1D4ED8", soft: "#DBEAFE" }; // 蓝
+    case "特禀质":
+      return { main: "#F472B6", dark: "#BE185D", soft: "#FCE7F3" }; // 粉
+    case "平和质":
+    default:
+      return { main: "#0F766E", dark: "#115E59", soft: "#E6FBF6" }; // 青绿
+  }
+}
+
+/** 二维码跳转地址（可换成你的主域名；或用 VITE_SITE_URL 覆盖） */
 const FRIENDLY_URL = "https://checkyourbodynature.vercel.app";
 const SITE_URL =
   (import.meta as any)?.env?.VITE_SITE_URL ||
   FRIENDLY_URL ||
   (typeof window !== "undefined" ? window.location.origin : "https://example.com");
 
-/** 问卷评分刻度 */
+/** 评分刻度 */
 const SCALE = [
   { v: 1, label: "1 从不/没有" },
   { v: 2, label: "2 偶尔/轻度" },
@@ -34,7 +56,7 @@ const SCALE = [
 
 type Answers = Partial<Record<BodyType, (Answer | undefined)[]>>;
 
-/** ✅ 建议库（可按你品牌替换更细文案） */
+/** 简洁建议库（可换成你的完整版） */
 const ADVICE: Record<
   BodyType,
   { daily: string[]; diet: string[]; sport: string[]; mood: string[] }
@@ -95,9 +117,7 @@ const ADVICE: Record<
   },
 };
 
-type View = "form" | "result";
-
-/** 确保 html2canvas 可用 */
+/** html2canvas 兜底加载 */
 async function ensureHtml2canvas(): Promise<(node: HTMLElement, opts?: any) => Promise<HTMLCanvasElement>> {
   try {
     const mod = await import("html2canvas");
@@ -118,17 +138,19 @@ async function ensureHtml2canvas(): Promise<(node: HTMLElement, opts?: any) => P
   }
 }
 
+/** ========= 主组件 ========= */
+type View = "form" | "result";
+
 export default function App() {
   const [view, setView] = useState<View>("form");
   const [sex, setSex] = useState<"male" | "female">("female");
   const bank = useMemo(() => getQuestions({ sex }), [sex]);
 
+  /** 平铺题库 */
   const flat = useMemo(() => {
     const items: { type: BodyType; idx: number; text: string }[] = [];
     (Object.keys(bank) as BodyType[]).forEach((t) => {
-      bank[t].forEach((q, i) => {
-        items.push({ type: t, idx: i, text: q.text.replace(/[*＊]/g, "").trim() });
-      });
+      bank[t].forEach((q, i) => items.push({ type: t, idx: i, text: q.text.replace(/[*＊]/g, "").trim() }));
     });
     return items;
   }, [bank]);
@@ -151,7 +173,7 @@ export default function App() {
     mainTypes: BodyType[];
   } | null>(null);
 
-  /** 提交问卷计算结果 */
+  /** 提交计算结果 */
   const handleSubmit = () => {
     const first = flat.findIndex((q) => !answers[q.type]?.[q.idx]);
     if (first !== -1) {
@@ -160,69 +182,72 @@ export default function App() {
       return;
     }
     const { trans, ranking } = compute(answers as any, { sex });
-    const mainTypes = ranking.slice(0, 2); // ✅ 包含平和质
+    const mainTypes = ranking.slice(0, 2); // 包含平和质
     setResult({ trans, ranking, mainTypes });
     setView("result");
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
-  /** ✅ 进入结果页后预生成二维码，保证 UI 与 PDF 都有 */
-  useEffect(() => {
-    const makeQR = async () => {
-      try {
-        const qrImg = document.getElementById("poster-qr") as HTMLImageElement | null;
-        if (!qrImg) return;
-        const qrDataUrl = await QRCode.toDataURL(SITE_URL, { margin: 1, width: 160 });
-        qrImg.src = qrDataUrl;
-      } catch (err) {
-        console.error("QR generation failed", err);
-      }
-    };
-    makeQR();
-  }, []);
+  /** ====== 二维码（canvas绘制，稳定） ====== */
+  const [qrReady, setQrReady] = useState(false);
+  const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  /** ✅ 生成 PDF（二维码已在页面预先生成） */
+  async function generateQR(): Promise<void> {
+    try {
+      setQrReady(false);
+      const canvas = qrCanvasRef.current || (document.getElementById("poster-qr") as HTMLCanvasElement | null);
+      if (!canvas) return;
+      await QRCode.toCanvas(canvas, SITE_URL, { margin: 1, width: 180, errorCorrectionLevel: "M" });
+      setQrReady(true);
+    } catch (e) {
+      console.error("QR generation failed:", e);
+      setQrReady(true);
+    }
+  }
+
+  useEffect(() => {
+    if (view === "result") generateQR();
+  }, [view]);
+
+  /** 生成海报 PDF */
   const createPosterPDF = async () => {
     const node = document.getElementById("poster-root");
     if (!node || !result) return;
+
+    if (!qrReady) {
+      await generateQR();
+      await new Promise((r) => setTimeout(r, 80));
+    }
+
     const html2canvas = await ensureHtml2canvas();
-    const canvas = await html2canvas(node, { scale: 2, backgroundColor: "#fff" });
+    const canvas = await html2canvas(node, { scale: 2, backgroundColor: "#ffffff" });
     const img = canvas.toDataURL("image/jpeg", 0.95);
     const pdf = new jsPDF({ unit: "pt", format: "a4" });
-    const pageW = 595;
-    const imgH = (canvas.height / canvas.width) * pageW;
+    const pageW = 595, imgH = (canvas.height / canvas.width) * pageW;
     pdf.addImage(img, "JPEG", 0, 0, pageW, imgH);
     pdf.save("体质自测-结果海报.pdf");
   };
 
-  /** 问卷页 */
+  /** ====== 问卷视图 ====== */
   if (view === "form") {
     return (
       <div className="min-h-screen" style={{ backgroundImage: THEME.bgGradient, color: THEME.text }}>
         <div className="mx-auto max-w-3xl px-4 py-8">
           <h1 className="text-3xl font-semibold text-center mb-3">中医体质判断问卷</h1>
           <p className="text-sm text-center mb-6" style={{ color: THEME.subText }}>
-            了解体质，更准确的养生。<b>免责声明：</b>本网站不构成医疗建议，如有疾病请及时就医。
+            了解个人体质，更准确的养生吧。<b>免责声明：</b>本网站不构成医疗建议，如有疾病请及时就医。
           </p>
 
-          {/* 性别选择 + 进度条 */}
-          <div
-            className="mb-6 p-4 rounded-2xl shadow-sm backdrop-blur"
-            style={{ background: THEME.cardBg, border: `1px solid ${THEME.border}` }}
-          >
+          <div className="mb-6 p-4 rounded-2xl shadow-sm backdrop-blur"
+               style={{ background: THEME.cardBg, border: `1px solid ${THEME.border}` }}>
             <div className="flex flex-col sm:flex-row items-center gap-4">
               <div className="flex items-center gap-2">
-                <span className="text-sm" style={{ color: THEME.subText }}>
-                  性别：
-                </span>
+                <span className="text-sm" style={{ color: THEME.subText }}>性别：</span>
                 <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: THEME.border }}>
                   {(["female", "male"] as const).map((s) => (
-                    <button
-                      key={s}
-                      onClick={() => setSex(s)}
-                      className="px-3 py-1.5 text-sm transition-colors"
-                      style={{ background: sex === s ? THEME.primary : "#fff", color: sex === s ? "#fff" : THEME.text }}
-                    >
+                    <button key={s} onClick={() => setSex(s)}
+                            className="px-3 py-1.5 text-sm transition-colors"
+                            style={{ background: sex === s ? THEME.brand : "#fff", color: sex === s ? "#fff" : THEME.text }}>
                       {s === "female" ? "女" : "男"}
                     </button>
                   ))}
@@ -230,50 +255,35 @@ export default function App() {
               </div>
               <div className="flex-1 w-full">
                 <div className="flex items-center justify-between text-xs mb-1" style={{ color: THEME.subText }}>
-                  <span>完成度</span>
-                  <span>
-                    {done}/{total}（{percent}%）
-                  </span>
+                  <span>完成度</span><span>{done}/{total}（{percent}%）</span>
                 </div>
                 <div className="h-2 rounded-full bg-stone-200 overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all"
-                    style={{ width: `${percent}%`, background: `linear-gradient(90deg, ${THEME.accent}, ${THEME.primary})` }}
-                  />
+                  <div className="h-full rounded-full transition-all"
+                       style={{ width: `${percent}%`, background: `linear-gradient(90deg, #34D399, ${THEME.brand})` }} />
                 </div>
               </div>
             </div>
           </div>
 
-          {/* 问题列表（不显示体质分组名） */}
           <ol className="space-y-5">
             {flat.map((q, i) => (
-              <li
-                key={i}
-                id={`q-${i}`}
-                className="border p-4 rounded-2xl shadow-sm"
-                style={{ background: THEME.cardBg, borderColor: unansweredIndex === i ? THEME.highlight : THEME.border }}
-              >
-                <div className="font-medium mb-3">
-                  {i + 1}、{q.text}
-                </div>
+              <li key={i} id={`q-${i}`} className="border p-4 rounded-2xl shadow-sm"
+                  style={{ background: THEME.cardBg, borderColor: unansweredIndex === i ? "#F59E0B" : THEME.border }}>
+                <div className="font-medium mb-3">{i + 1}、{q.text}</div>
                 <div className="flex flex-wrap gap-x-5 gap-y-2 text-sm">
                   {SCALE.map((s) => (
                     <label key={s.v} className="inline-flex items-center gap-2">
-                      <input
-                        type="radio"
-                        name={`q-${q.type}-${q.idx}`}
-                        checked={answers[q.type]?.[q.idx] === s.v}
-                        onChange={() => {
-                          const next: Answers = { ...answers };
-                          const arr = (next[q.type]
-                            ? [...(next[q.type] as any)]
-                            : Array((bank[q.type] || []).length).fill(undefined)) as (Answer | undefined)[];
-                          arr[q.idx] = s.v as Answer;
-                          next[q.type] = arr;
-                          setAnswers(next);
-                        }}
-                      />
+                      <input type="radio" name={`q-${q.type}-${q.idx}`}
+                             checked={answers[q.type]?.[q.idx] === s.v}
+                             onChange={() => {
+                               const next: Answers = { ...answers };
+                               const arr = (next[q.type]
+                                 ? [...(next[q.type] as any)]
+                                 : Array((bank[q.type] || []).length).fill(undefined)) as (Answer | undefined)[];
+                               arr[q.idx] = s.v as Answer;
+                               next[q.type] = arr;
+                               setAnswers(next);
+                             }} />
                       <span>{s.label}</span>
                     </label>
                   ))}
@@ -283,53 +293,52 @@ export default function App() {
           </ol>
 
           <div className="text-center mt-8">
-            <button
-              onClick={handleSubmit}
-              className="px-6 py-2 rounded-xl text-white shadow-sm"
-              style={{ background: THEME.primary }}
-            >
-              计算结果
-            </button>
+            <button onClick={handleSubmit}
+                    className="px-6 py-2 rounded-xl text-white shadow-sm"
+                    style={{ background: THEME.brand }}>计算结果</button>
           </div>
         </div>
       </div>
     );
   }
 
-  /** 结果页 */
+  /** ====== 结果视图（海报） ====== */
   const trans = result!.trans;
-  const main = result!.mainTypes;
+  const main = result!.mainTypes; // 前两名（包含平和质）
   const ranking = result!.ranking;
+  const pal = paletteFor(main[0]);
 
   return (
     <div className="min-h-screen" style={{ backgroundImage: THEME.bgGradient, color: THEME.text }}>
       <div className="mx-auto max-w-3xl px-4 py-8">
         <h1 className="text-3xl font-semibold text-center mb-6">体质判定与养生建议</h1>
 
-        <div
-          className="p-4 mb-6 rounded-2xl shadow-sm"
-          style={{ background: THEME.cardBg, border: `1px solid ${THEME.border}` }}
-        >
-          <div className="text-lg font-semibold mb-1">主要体质（得分前2名）</div>
-          <div className="text-sm">{main.join("、")}</div>
-          <div className="mt-2 text-sm" style={{ color: THEME.subText }}>
-            其他体质从高到低：{ranking.filter((t) => !main.includes(t)).join("、")}
+        {/* 海报容器（带水印/渐变/印章） */}
+        <div id="poster-root"
+             className="relative p-10 rounded-3xl shadow-lg overflow-hidden"
+             style={{
+               background: `radial-gradient(1200px 800px at -10% -20%, ${pal.soft} 0%, rgba(255,255,255,0) 60%), radial-gradient(900px 700px at 120% 10%, #FFFFFF 0%, rgba(255,255,255,0) 60%), #FFFFFF`,
+               border: `1px solid ${THEME.border}`
+             }}>
+          {/* 右上印章 */}
+          <div className="absolute right-6 top-6 select-none"
+               style={{ color: pal.dark, border: `2px solid ${pal.dark}`, borderRadius: "10px", padding: "6px 10px",
+                        fontWeight: 700, transform: "rotate(-8deg)" }}>
+            体质档案
           </div>
-        </div>
 
-        {/* 导出海报区域 */}
-        <div id="poster-root" className="p-10 bg-white rounded-2xl shadow" style={{ border: `1px solid ${THEME.border}` }}>
+          {/* 标题 */}
           <div className="text-center mb-8">
-            <h2 className="text-2xl font-semibold mb-1">体质自测 · 结果海报</h2>
-            <div className="text-sm" style={{ color: THEME.subText }}>
+            <div className="text-2xl font-semibold tracking-wide">体质自测 · 结果海报</div>
+            <div className="mt-1 text-sm" style={{ color: THEME.subText }}>
               主要体质：{main.join("、")}
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-10">
-            {/* 左侧：柱状图与建议摘要 */}
+            {/* 左：柱状图 + 建议 */}
             <div>
-              <div className="font-medium mb-2">各体质转化分（0~100）</div>
+              <div className="font-medium mb-3">各体质转化分（0~100）</div>
               <div className="space-y-2 mb-6">
                 {(Object.keys(trans) as BodyType[])
                   .map((k) => ({ k, v: trans[k] }))
@@ -337,14 +346,13 @@ export default function App() {
                   .map(({ k, v }) => (
                     <div key={k} className="flex items-center gap-3">
                       <div className="w-16 text-right text-sm">{k}</div>
-                      <div className="flex-1 h-3 bg-stone-200 rounded overflow-hidden">
-                        <div
-                          className="h-full"
-                          style={{
-                            width: `${Math.max(2, Math.min(100, v))}%`,
-                            background: `linear-gradient(90deg, ${THEME.accent}, ${THEME.primary})`,
-                          }}
-                        />
+                      <div className="flex-1 h-3 bg-stone-200 rounded-full overflow-hidden">
+                        <div className="h-full"
+                             style={{
+                               width: `${Math.max(2, Math.min(100, v))}%`,
+                               background: `linear-gradient(90deg, ${pal.main}, ${pal.dark})`,
+                               borderRadius: 999
+                             }} />
                       </div>
                       <div className="w-10 text-right text-sm">{v.toFixed(0)}</div>
                     </div>
@@ -355,52 +363,69 @@ export default function App() {
               <ul className="text-sm list-disc list-inside space-y-1">
                 {main
                   .flatMap((t) => ADVICE[t].daily.slice(0, 1).concat(ADVICE[t].diet.slice(0, 1)))
-                  .map((s, i) => (
-                    <li key={i}>{s}</li>
-                  ))}
+                  .map((s, i) => <li key={i}>{s}</li>)}
               </ul>
             </div>
 
-            {/* 右侧：二维码（预生成） */}
+            {/* 右：二维码 + 标语 */}
             <div className="text-center">
-              <img id="poster-qr" alt="qrcode" className="inline-block w-40 h-40 bg-stone-100 object-contain" />
-              <div className="mt-3 text-sm text-stone-500">扫码查看完整报告</div>
+              <div className="inline-block p-3 rounded-2xl"
+                   style={{ background: "#F8FAFC", border: `1px solid ${THEME.border}` }}>
+                <canvas id="poster-qr" ref={qrCanvasRef} width={180} height={180}
+                        className="inline-block w-44 h-44 bg-white" />
+              </div>
+              <div className="mt-3 text-sm" style={{ color: THEME.subText }}>扫码查看完整报告</div>
+
+              <div className="mt-6 text-xs">
+                <div className="font-medium" style={{ color: pal.dark }}>Check Your Bodynature</div>
+                <div style={{ color: THEME.subText }}>更了解自己，更精准养生</div>
+              </div>
             </div>
           </div>
 
+          {/* 脚注 */}
           <div className="mt-8 text-center text-xs" style={{ color: THEME.subText }}>
             * 本工具仅用于健康教育与体质自测，不构成医疗建议；如有不适或疾病，请及时就医。
           </div>
         </div>
 
-        {/* 底部操作区 */}
-        <div className="mt-6 flex flex-wrap items-center gap-3 justify-center">
-          <button
-            onClick={() => setView("form")}
-            className="px-4 py-2 rounded-xl border shadow-sm"
-            style={{ borderColor: THEME.border, color: THEME.text }}
-          >
+        {/* 主要体质、其他体质说明卡 */}
+        <div className="mt-6 grid md:grid-cols-2 gap-4">
+          <div className="p-4 rounded-2xl shadow-sm"
+               style={{ background: THEME.cardBg, border: `1px solid ${THEME.border}` }}>
+            <div className="text-sm" style={{ color: THEME.subText }}>主要体质（得分前2名）</div>
+            <div className="text-lg font-semibold">{main.join("、")}</div>
+          </div>
+          <div className="p-4 rounded-2xl shadow-sm"
+               style={{ background: THEME.cardBg, border: `1px solid ${THEME.border}` }}>
+            <div className="text-sm" style={{ color: THEME.subText }}>其他体质（高→低）</div>
+            <div className="text-sm">{ranking.filter((t) => !main.includes(t)).join("、")}</div>
+          </div>
+        </div>
+
+        {/* 操作区 */}
+        <div className="mt-8 flex flex-wrap items-center gap-3 justify-center">
+          <button onClick={() => setView("form")}
+                  className="px-4 py-2 rounded-xl border shadow-sm"
+                  style={{ borderColor: THEME.border, color: THEME.text }}>
             返回修改答案
           </button>
-          <button
-            onClick={createPosterPDF}
-            className="px-4 py-2 rounded-xl text-white shadow-sm"
-            style={{ background: THEME.primary }}
-          >
+          <button onClick={createPosterPDF}
+                  className="px-4 py-2 rounded-xl text-white shadow-sm"
+                  style={{ background: pal.dark }}>
             生成海报 PDF
           </button>
         </div>
 
-        {/* 外部推广链接（小红书） */}
-        <div className="mt-10 text-center text-sm" style={{ color: THEME.subText }}>
-          想了解更多中医养生知识？<br />
-          欢迎在小红书搜索：
+        {/* 小红书推广 */}
+        <div className="mt-8 text-center text-sm" style={{ color: THEME.subText }}>
+          想了解更多体质养生内容？在小红书搜索：
           <a
-            href="https://www.xiaohongshu.com/search_result?keyword=%E7%8E%8B%E5%92%A9%E5%92%A9%E5%9C%A8%E6%96%B0%E5%8A%A0%E5%9D%A1"
+            className="ml-1 underline font-medium"
+            style={{ color: pal.dark }}
             target="_blank"
             rel="noopener noreferrer"
-            className="ml-1 font-medium underline"
-            style={{ color: THEME.primary }}
+            href="https://www.xiaohongshu.com/search_result?keyword=%E7%8E%8B%E5%92%A9%E5%92%A9%E5%9C%A8%E6%96%B0%E5%8A%A0%E5%9D%A1"
           >
             王咩咩在新加坡
           </a>
