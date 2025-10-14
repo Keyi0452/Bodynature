@@ -6,7 +6,7 @@ const THEME = {
   bgGradient: "linear-gradient(to bottom, #FFF8ED 0%, #FDF6EC 100%)",
   text: "#1C1917",
   subText: "#57534E",
-  cardBg: "rgba(255,255,255,0.96)",
+  cardBg: "#FFF8ED",
   border: "#E5E7EB",
   brand: "#B45309",
   brandLight: "#F59E0B",
@@ -88,7 +88,7 @@ export default function App() {
   const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
   useEffect(() => {
     if (view === "result" && qrCanvasRef.current)
-      QRCode.toCanvas(qrCanvasRef.current, SITE_URL, { width: 160 });
+      QRCode.toCanvas(qrCanvasRef.current, SITE_URL, { width: 140 });
   }, [view]);
 
   if (view === "form") {
@@ -154,68 +154,73 @@ export default function App() {
 
   return (
     <div className="min-h-screen px-4 py-8" style={{ backgroundImage: THEME.bgGradient, color: THEME.text }}>
-      <div className="max-w-3xl mx-auto bg-white/90 rounded-2xl shadow p-6">
-        <h2 className="text-2xl font-semibold text-center mb-2">体质自测 · 结果报告</h2>
-        <p className="text-center text-sm mb-6" style={{ color: THEME.subText }}>
+      <div className="max-w-5xl mx-auto bg-white/90 rounded-2xl shadow p-6">
+        <h2 className="text-2xl font-semibold text-center mb-4">体质自测 · 结果报告</h2>
+
+        <div className="text-center text-sm mb-6" style={{ color: THEME.subText }}>
           了解体质，更懂自己，开启专属养生之路。
-        </p>
+        </div>
 
         <div className="text-center mb-4 font-medium" style={{ color: THEME.brand }}>测试结果显示，你目前主要是：</div>
-        <div className="grid sm:grid-cols-2 gap-4 mb-6">
+        <div className="grid sm:grid-cols-2 gap-4 mb-8">
           {mainTypes.map((t) => (
             <div key={t} className="p-4 rounded-2xl shadow-sm text-sm"
-              style={{
-                background: "linear-gradient(to bottom right, #FFF8ED, #FEF3C7)",
-                border: `1px solid ${THEME.brandLight}`,
-              }}>
+              style={{ background: THEME.cardBg, border: `1px solid ${THEME.border}` }}>
               <div className="text-lg font-semibold mb-1" style={{ color: THEME.brandDark }}>{t}</div>
               <div style={{ color: THEME.text }}>{DESCRIPTION[t]}</div>
             </div>
           ))}
         </div>
 
-        <div className="mb-6">
-          <h3 className="font-medium mb-2">各体质转化分（0~100）</h3>
-          {(Object.entries(trans) as [BodyType, number][]).map(([k, v]) => (
-            <div key={k} className="flex items-center gap-2 mb-1">
-              <div style={{ width: "5em" }}>{k}</div>
-              <div className="flex-1 h-3 bg-stone-200 rounded-full overflow-hidden">
-                <div className="h-full" style={{
-                  width: `${v}%`,
-                  background: "linear-gradient(to right, #F59E0B, #B45309)",
-                }} />
+        {/* 柱状图 + 建议与二维码 */}
+        <div className="grid sm:grid-cols-2 gap-6">
+          {/* 左侧柱状图 */}
+          <div>
+            <h3 className="font-medium mb-2">各体质转化分（0~100）</h3>
+            {(Object.entries(trans) as [BodyType, number][]).map(([k, v]) => (
+              <div key={k} className="flex items-center gap-2 mb-1">
+                <div style={{ width: "5em" }}>{k}</div>
+                <div className="flex-1 h-3 bg-stone-200 rounded-full overflow-hidden">
+                  <div className="h-full" style={{
+                    width: `${v}%`,
+                    background: "linear-gradient(to right, #F59E0B, #B45309)",
+                  }} />
+                </div>
+                <div className="w-10 text-right text-sm">{v.toFixed(0)}</div>
               </div>
-              <div className="w-10 text-right text-sm">{v.toFixed(0)}</div>
-            </div>
-          ))}
-        </div>
-
-        <div className="mb-6 p-4 rounded-2xl shadow-sm"
-          style={{ background: "#FFF8ED", border: `1px solid ${THEME.border}` }}>
-          <h3 className="font-medium mb-2 text-amber-800">🌞 建议摘要</h3>
-          <ul className="text-sm list-disc list-inside space-y-1" style={{ color: THEME.text }}>
-            {mainTypes.flatMap((t) => ADVICE[t]?.daily.concat(ADVICE[t]?.diet || [])).map((s, i) => (
-              <li key={i} style={{ color: THEME.brandDark }}>{s}</li>
             ))}
-          </ul>
+          </div>
+
+          {/* 右侧建议 + 二维码 */}
+          <div className="flex flex-col justify-between">
+            <div className="p-4 rounded-2xl shadow-sm mb-4"
+              style={{ background: THEME.cardBg, border: `1px solid ${THEME.border}` }}>
+              <h3 className="font-medium mb-2 text-amber-800">🌞 建议摘要</h3>
+              <ul className="text-sm list-disc list-inside space-y-1" style={{ color: THEME.text }}>
+                {mainTypes.flatMap((t) => ADVICE[t]?.daily.concat(ADVICE[t]?.diet || [])).map((s, i) => (
+                  <li key={i} style={{ color: THEME.brandDark }}>{s}</li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="text-center">
+              <canvas ref={qrCanvasRef} width={140} height={140} className="bg-white p-2 rounded-xl shadow-md inline-block" />
+              <p className="text-sm font-medium mt-1" style={{ color: THEME.brandDark }}>扫码进入体质测试</p>
+              <a href="https://www.xiaohongshu.com/explore" target="_blank" rel="noopener noreferrer"
+                className="block text-xs mt-2 text-amber-700 underline">
+                想了解更多养生知识？在小红书搜索「王咩咩在新加坡」
+              </a>
+            </div>
+          </div>
         </div>
 
-        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mt-8">
-          <div className="text-center">
-            <canvas ref={qrCanvasRef} width={160} height={160} className="bg-white p-2 rounded-xl shadow-md inline-block" />
-            <p className="text-sm font-medium mt-1" style={{ color: THEME.brandDark }}>扫码进入体质测试</p>
-          </div>
-
-          <div className="text-xs text-stone-500 text-center sm:text-right mt-4 sm:mt-0">
-            * 本工具仅用于健康教育与体质自测，不构成医疗建议；如有不适或疾病，请及时就医。
-          </div>
+        <div className="text-xs text-stone-500 text-center mt-10">
+          * 本工具仅用于健康教育与体质自测，不构成医疗建议；如有不适或疾病，请及时就医。
         </div>
 
         <div className="text-center mt-6">
           <button onClick={() => setView("form")} className="px-4 py-2 rounded-xl border mr-3"
             style={{ borderColor: THEME.border }}>返回修改答案</button>
-          <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} className="px-4 py-2 rounded-xl text-white"
-            style={{ background: THEME.brandDark }}>分享给朋友</button>
         </div>
       </div>
     </div>
