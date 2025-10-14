@@ -13,6 +13,18 @@ const THEME = {
   accent: "#F59E0B",
 };
 
+const DESCRIPTION: Record<BodyType, string> = {
+  平和质: "你的身体状态整体平衡，精神好、睡眠也不错。保持规律作息、饮食清淡，是很理想的体质。",
+  气虚质: "容易觉得累，说话没力气，天气变化时也容易感冒。注意多休息、保证睡眠会更好。",
+  阳虚质: "怕冷、手脚常冰凉，容易精神不振。多晒太阳、吃热的食物会让你更有活力。",
+  阴虚质: "常觉得热、容易口干、睡不踏实。多喝水、别太晚睡，会让身体更舒服。",
+  痰湿质: "容易困、身体沉重，或有点怕热。清淡饮食、少油腻能让身体更轻松。",
+  湿热质: "脸上容易出油或长痘，有时觉得闷热或口苦。清爽饮食、多喝水最合适。",
+  血瘀质: "有时脸色暗、皮肤干、容易酸痛。适度活动、拉伸会让气血更顺畅。",
+  气郁质: "容易心情闷、紧张或焦虑，睡眠也容易受影响。多放松、多交流能帮你舒展心情。",
+  特禀质: "体质比较敏感，容易过敏或对环境变化反应大。注意防护、保持稳定作息就很好。",
+};
+
 function paletteFor(t?: BodyType) {
   switch (t) {
     case "阳虚质": return { main: "#F59E0B", dark: "#B45309", soft: "#FEF3C7" };
@@ -28,12 +40,6 @@ function paletteFor(t?: BodyType) {
 }
 
 const SITE_URL = "https://checkyourbodynature.vercel.app";
-
-async function ensureHtml2canvas(): Promise<(node: HTMLElement, opts?: any) => Promise<HTMLCanvasElement>> {
-  const mod = await import("html2canvas");
-  return mod.default;
-}
-
 const SCALE = [
   { v: 1, label: "1 从不/没有" },
   { v: 2, label: "2 偶尔/轻度" },
@@ -56,15 +62,11 @@ const ADVICE: Record<BodyType, { daily: string[]; diet: string[] }> = {
   特禀质: { daily: ["减少过敏原暴露；保持室内洁净通风。"], diet: ["避免过敏食物，清润饮食。"] },
 };
 
-const isWeChat = () => typeof navigator !== "undefined" && /MicroMessenger/i.test(navigator.userAgent);
-const isMobile = () => typeof navigator !== "undefined" && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-
-type View = "form" | "result";
-
 export default function App() {
-  const [view, setView] = useState<View>("form");
+  const [view, setView] = useState<"form" | "result">("form");
   const [sex, setSex] = useState<"male" | "female">("female");
   const bank = useMemo(() => getQuestions({ sex }), [sex]);
+
   const flat = useMemo(() => {
     const items: { type: BodyType; idx: number; text: string }[] = [];
     (Object.keys(bank) as BodyType[]).forEach((t) => {
@@ -100,98 +102,56 @@ export default function App() {
   };
 
   const qrCanvasRef = useRef<HTMLCanvasElement | null>(null);
-  async function generateQR() {
-    const canvas = qrCanvasRef.current;
-    if (!canvas) return;
-    await QRCode.toCanvas(canvas, SITE_URL, { margin: 1, width: 180, errorCorrectionLevel: "M" });
-  }
-
-  useEffect(() => { if (view === "result") generateQR(); }, [view]);
-
-  async function handleSharePoster() {
-    try {
-      const html2canvas = await ensureHtml2canvas();
-      const node = document.getElementById("poster-root");
-      if (!node) return;
-      const canvas = await html2canvas(node, { scale: 2 });
-      const blob = await new Promise<Blob>((r) => canvas.toBlob((b) => r(b as Blob), "image/png"));
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = "体质自测-分享图.png";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      URL.revokeObjectURL(url);
-    } catch (err) {
-      console.error(err);
-      alert("生成分享图失败，请稍后再试。");
-    }
-  }
+  useEffect(() => {
+    if (view === "result" && qrCanvasRef.current) QRCode.toCanvas(qrCanvasRef.current, SITE_URL, { width: 160 });
+  }, [view]);
 
   if (view === "form") {
     return (
       <div className="min-h-screen" style={{ backgroundImage: THEME.bgGradient, color: THEME.text }}>
-        <div className="mx-auto max-w-3xl px-4 py-8">
-          <h1 className="text-3xl font-semibold text-center mb-3">中医体质判断问卷</h1>
+        <div className="max-w-3xl mx-auto p-6">
+          <h1 className="text-3xl font-semibold text-center mb-2">中医体质判断问卷</h1>
           <p className="text-sm text-center mb-6" style={{ color: THEME.subText }}>
             了解体质，更准确的养生。<b>免责声明：</b>本网站不构成医疗建议，如有疾病请及时就医。
           </p>
-          <div className="mb-6 p-4 rounded-2xl shadow-sm backdrop-blur" style={{ background: THEME.cardBg, border: `1px solid ${THEME.border}` }}>
-            <div className="flex flex-col sm:flex-row items-center gap-4">
-              <div className="flex items-center gap-2">
-                <span className="text-sm" style={{ color: THEME.subText }}>性别：</span>
-                <div className="flex rounded-lg overflow-hidden border" style={{ borderColor: THEME.border }}>
-                  {(["female", "male"] as const).map((s) => (
-                    <button key={s} onClick={() => setSex(s)}
-                      className="px-3 py-1.5 text-sm transition-colors"
-                      style={{ background: sex === s ? THEME.brand : "#fff", color: sex === s ? "#fff" : THEME.text }}>
-                      {s === "female" ? "女" : "男"}
-                    </button>
-                  ))}
-                </div>
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <span>性别：</span>
+              {(["female", "male"] as const).map((s) => (
+                <button key={s} onClick={() => setSex(s)} className="px-3 py-1.5 rounded"
+                  style={{ background: sex === s ? THEME.brand : "#fff", color: sex === s ? "#fff" : THEME.text }}>
+                  {s === "female" ? "女" : "男"}
+                </button>
+              ))}
+            </div>
+            <div className="flex-1 ml-6">
+              <div className="h-2 bg-stone-200 rounded-full overflow-hidden">
+                <div className="h-full bg-amber-500 rounded-full transition-all" style={{ width: `${percent}%` }} />
               </div>
-              <div className="flex-1 w-full">
-                <div className="flex items-center justify-between text-xs mb-1" style={{ color: THEME.subText }}>
-                  <span>完成度</span><span>{done}/{total}（{percent}%）</span>
-                </div>
-                <div className="h-2 rounded-full bg-stone-200 overflow-hidden">
-                  <div className="h-full rounded-full transition-all" style={{ width: `${percent}%`, background: `linear-gradient(90deg, #FDBA74, ${THEME.brand})` }} />
-                </div>
-              </div>
+              <p className="text-xs text-right mt-1" style={{ color: THEME.subText }}>
+                {done}/{total}（{percent}%）
+              </p>
             </div>
           </div>
           <ol className="space-y-4">
             {flat.map((q, i) => (
-              <li key={i} id={`q-${i}`} className="p-4 rounded-2xl shadow-sm" style={{ background: THEME.cardBg, border: `1px solid ${THEME.border}` }}>
-                <div className="mb-2 text-sm">{i + 1}. {q.text}</div>
-                <div className="flex flex-wrap gap-3 text-sm">
+              <li key={i} id={`q-${i}`} className="p-4 rounded-2xl shadow-sm"
+                style={{ background: THEME.cardBg, border: `1px solid ${THEME.border}` }}>
+                <div className="mb-2">{i + 1}. {q.text}</div>
+                <div className="flex flex-wrap gap-4">
                   {SCALE.map((s) => (
-                    <label key={s.v} className="flex items-center gap-1 cursor-pointer">
-                      <input
-                        type="radio"
-                        name={`${q.type}-${i}`}
-                        checked={answers[q.type]?.[q.idx] === s.v}
-                        onChange={() =>
-                          setAnswers((prev) => ({
-                            ...prev,
-                            [q.type]: prev[q.type]?.map((x, j) => (j === q.idx ? s.v : x)),
-                          }))
-                        }
-                      />
-                      {s.label}
+                    <label key={s.v}>
+                      <input type="radio" name={`${q.type}-${i}`} checked={answers[q.type]?.[q.idx] === s.v}
+                        onChange={() => setAnswers((p) => ({ ...p, [q.type]: p[q.type]?.map((x, j) => (j === q.idx ? s.v : x)) }))} />
+                      <span className="ml-1">{s.label}</span>
                     </label>
                   ))}
                 </div>
               </li>
             ))}
           </ol>
-          <div className="text-center mt-8">
-            <button
-              onClick={handleSubmit}
-              disabled={done < total}
-              className="px-6 py-2 rounded-xl text-white shadow-sm"
-              style={{ background: done === total ? THEME.brandDark : "#aaa" }}>
+          <div className="text-center mt-6">
+            <button onClick={handleSubmit} className="px-6 py-2 rounded-xl text-white" style={{ background: THEME.brand }}>
               提交并查看结果
             </button>
           </div>
@@ -201,53 +161,55 @@ export default function App() {
   }
 
   if (!result) return null;
-
   const { trans, mainTypes } = result;
 
   return (
     <div className="min-h-screen px-4 py-8" style={{ backgroundImage: THEME.bgGradient, color: THEME.text }}>
-      <div id="poster-root" className="max-w-3xl mx-auto rounded-2xl p-6 shadow-md" style={{ background: THEME.cardBg }}>
-        <h2 className="text-center text-2xl font-semibold mb-1">体质自测 · 结果海报</h2>
-        <div className="text-center text-sm mb-6" style={{ color: THEME.subText }}>
-          主要体质：{mainTypes.join("、")}
+      <div className="max-w-3xl mx-auto bg-white/90 rounded-2xl shadow p-6">
+        <h2 className="text-2xl font-semibold text-center mb-4">体质自测 · 结果报告</h2>
+        <div className="grid sm:grid-cols-2 gap-4 mb-6">
+          {mainTypes.map((t) => (
+            <div key={t} className="p-4 rounded-2xl shadow-sm text-sm" style={{ background: paletteFor(t).soft }}>
+              <div className="text-lg font-semibold mb-1" style={{ color: paletteFor(t).dark }}>{t}</div>
+              <div style={{ color: THEME.text }}>{DESCRIPTION[t]}</div>
+            </div>
+          ))}
         </div>
-        <div className="flex flex-col sm:flex-row gap-6 items-start justify-between">
-          <div className="flex-1">
-            <div className="text-sm font-medium mb-2">各体质转化分（0~100）</div>
-            {Object.entries(trans).map(([k, v]) => (
-              <div key={k} className="flex items-center gap-2 mb-1">
-                <div style={{ width: "5em" }}>{k}</div>
-                <div className="flex-1 h-3 bg-stone-200 rounded-full overflow-hidden">
-                  <div className="h-full rounded-full" style={{ width: `${v}%`, background: paletteFor(k as BodyType).main }} />
-                </div>
-                <div className="w-10 text-right text-sm">{v.toFixed(0)}</div>
+        <div className="mb-6">
+          <h3 className="font-medium mb-2">各体质转化分（0~100）</h3>
+          {(Object.entries(trans) as [BodyType, number][]).map(([k, v]) => (
+            <div key={k} className="flex items-center gap-2 mb-1">
+              <div style={{ width: "5em" }}>{k}</div>
+              <div className="flex-1 h-3 bg-stone-200 rounded-full overflow-hidden">
+                <div className="h-full" style={{ width: `${v}%`, background: paletteFor(k).main }} />
               </div>
+              <div className="w-10 text-right text-sm">{v.toFixed(0)}</div>
+            </div>
+          ))}
+        </div>
+        <div className="mb-6">
+          <h3 className="font-medium mb-1">建议摘要</h3>
+          <ul className="text-sm list-disc list-inside space-y-1">
+            {mainTypes.flatMap((t) => ADVICE[t]?.daily.concat(ADVICE[t]?.diet || [])).map((s, i) => (
+              <li key={i}>{s}</li>
             ))}
-            <div className="font-medium mb-2 mt-6">建议摘要</div>
-            <ul className="text-sm list-disc list-inside space-y-1">
-              {mainTypes.flatMap((t) => ADVICE[t]?.daily.concat(ADVICE[t]?.diet || [])).map((s, i) => (
-                <li key={i}>{s}</li>
-              ))}
-            </ul>
-          </div>
+          </ul>
+        </div>
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
           <div className="text-center">
-            <canvas ref={qrCanvasRef} width={180} height={180} className="inline-block bg-white rounded-xl" />
-            <div className="mt-2 text-xs text-stone-500">扫码进入体质测试</div>
+            <canvas ref={qrCanvasRef} width={160} height={160} className="bg-white p-2 rounded-xl inline-block" />
+            <p className="text-xs mt-2" style={{ color: THEME.subText }}>扫码进入体质测试</p>
+          </div>
+          <div className="text-xs text-stone-500 text-center sm:text-right">
+            * 本工具仅用于健康教育与体质自测，不构成医疗建议；如有不适或疾病，请及时就医。
           </div>
         </div>
-        <div className="mt-8 text-center text-xs" style={{ color: THEME.subText }}>
-          * 本工具仅用于健康教育与体质自测，不构成医疗建议；如有不适或疾病，请及时就医。
+        <div className="text-center mt-6">
+          <button onClick={() => setView("form")} className="px-4 py-2 rounded-xl border mr-3"
+            style={{ borderColor: THEME.border }}>返回修改答案</button>
+          <button onClick={() => window.scrollTo({ top: 0, behavior: "smooth" })} className="px-4 py-2 rounded-xl text-white"
+            style={{ background: THEME.brandDark }}>分享给朋友</button>
         </div>
-      </div>
-      <div className="text-center mt-6">
-        <button onClick={() => setView("form")} className="px-4 py-2 rounded-xl border mr-3"
-          style={{ borderColor: THEME.border, color: THEME.text }}>
-          返回修改答案
-        </button>
-        <button onClick={handleSharePoster} className="px-4 py-2 rounded-xl text-white shadow-sm"
-          style={{ background: THEME.brandDark }}>
-          分享给朋友
-        </button>
       </div>
     </div>
   );
